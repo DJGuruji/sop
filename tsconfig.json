@@ -19,6 +19,8 @@
       }
     ],
     "paths": {
+      "@/generated/prisma/client": ["./src/lib/prisma-client-shim.ts"],
+      "@/generated/prisma/enums": ["./src/lib/prisma-enums.ts"],
       "@/*": ["./src/*"]
     }
   },
