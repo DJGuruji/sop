@@ -1,6 +1,3 @@
-import mammoth from "mammoth";
-import { PDFParse } from "pdf-parse";
-import WordExtractor from "word-extractor";
 import sanitizeHtml from "sanitize-html";
 
 export type EditableSopContent = {
@@ -250,6 +247,7 @@ export async function convertSopFileToEditableContent(params: {
   const lower = params.fileName.toLowerCase();
 
   if (lower.endsWith(".docx")) {
+    const mammoth = (await import("mammoth")).default;
     const [htmlResult, rawResult] = await Promise.all([
       mammoth.convertToHtml(
         { buffer: params.buffer },
@@ -265,6 +263,7 @@ export async function convertSopFileToEditableContent(params: {
   }
 
   if (lower.endsWith(".doc")) {
+    const { default: WordExtractor } = await import("word-extractor");
     const extractor = new WordExtractor();
     const extracted = await extractor.extract(params.buffer);
     const text = normalizeText(extracted.getBody());
@@ -276,6 +275,7 @@ export async function convertSopFileToEditableContent(params: {
   }
 
   if (lower.endsWith(".pdf")) {
+    const { PDFParse } = await import("pdf-parse");
     const parser = new PDFParse({ data: new Uint8Array(params.buffer) });
     try {
       const [result, screenshots] = await Promise.all([
