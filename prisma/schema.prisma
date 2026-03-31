@@ -1,0 +1,333 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  DEPARTMENT_ADMIN
+  SUPERVISOR
+  EMPLOYEE
+}
+
+enum DocumentType {
+  SOP
+  POLICY
+}
+
+enum DocumentStatus {
+  DRAFT
+  PENDING_DEPT_ADMIN_APPROVAL
+  DEPT_ADMIN_APPROVED
+  PENDING_ADMIN_APPROVAL
+  ADMIN_APPROVED
+  PUBLISHED
+  UNPUBLISHED
+  ARCHIVED
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  ADMIN_REJECTED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  ESCALATED
+  CANCELLED
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  SOFT_DELETE
+  RESTORE
+  SUBMIT_FOR_APPROVAL
+  APPROVE
+  REJECT
+  ESCALATE
+  PUBLISH
+  UNPUBLISH
+  LOGIN
+  LOGOUT
+}
+
+model User {
+  id                String   @id @default(cuid())
+  name              String
+  email             String   @unique
+  passwordHash      String
+  role              Role
+  isActive          Boolean  @default(true)
+
+  departmentId      String?
+  subDepartmentId   String?
+  createdById       String?
+  reportingToId     String?
+
+  department        Department?    @relation("DepartmentUsers", fields: [departmentId], references: [id], onDelete: SetNull)
+  subDepartment     SubDepartment? @relation("SubDepartmentUsers", fields: [subDepartmentId], references: [id], onDelete: SetNull)
+  adminDepartmentAssignments UserDepartmentAssignment[] @relation("AdminDepartmentAssignments")
+
+  createdDepartments Department[] @relation("DepartmentCreatedBy")
+
+  createdBy         User?   @relation("UserCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdUsers      User[]  @relation("UserCreatedBy")
+
+  reportingTo       User?   @relation("UserReportingTo", fields: [reportingToId], references: [id], onDelete: SetNull)
+  reportees         User[]  @relation("UserReportingTo")
+
+  createdDocuments  Document[]         @relation("DocumentCreatedBy")
+  updatedDocuments  Document[]         @relation("DocumentUpdatedBy")
+  deletedDocuments  Document[]         @relation("DocumentDeletedBy")
+
+  createdVersions   DocumentVersion[]  @relation("VersionCreatedBy")
+  updatedVersions   DocumentVersion[]  @relation("VersionUpdatedBy")
+
+  requestedApprovals ApprovalRequest[] @relation("ApprovalRequester")
+  actedApprovals     ApprovalRequest[] @relation("ApprovalApprover")
+  deptEndorsedApprovals ApprovalRequest[] @relation("ApprovalDeptEndorsement")
+
+  auditLogs         AuditLog[]         @relation("AuditActor")
+  passwordResetTokens PasswordResetToken[]
+  notifications     Notification[]     @relation("UserNotifications")
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  deletedAt         DateTime?
+
+  @@index([role])
+  @@index([departmentId])
+  @@index([subDepartmentId])
+  @@index([createdById])
+  @@index([reportingToId])
+  @@index([deletedAt])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, expiresAt])
+  @@index([usedAt])
+}
+
+model Department {
+  id              String   @id @default(cuid())
+  name            String   @unique
+  code            String?  @unique
+
+  createdById     String?
+  createdBy       User?    @relation("DepartmentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  users           User[]   @relation("DepartmentUsers")
+  adminAssignments UserDepartmentAssignment[] @relation("AdminDepartmentAssignments")
+  subDepartments  SubDepartment[]
+  documents       Document[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
+
+  @@index([deletedAt])
+}
+
+model SubDepartment {
+  id              String   @id @default(cuid())
+  name            String
+  code            String?
+  departmentId    String
+
+  department      Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  users           User[]     @relation("SubDepartmentUsers")
+  documents       Document[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
+
+  @@unique([departmentId, name])
+  @@unique([departmentId, code])
+  @@index([departmentId])
+  @@index([deletedAt])
+}
+
+model UserDepartmentAssignment {
+  id           String     @id @default(cuid())
+  userId       String
+  departmentId String
+
+  user         User       @relation("AdminDepartmentAssignments", fields: [userId], references: [id], onDelete: Cascade)
+  department   Department @relation("AdminDepartmentAssignments", fields: [departmentId], references: [id], onDelete: Cascade)
+
+  createdAt    DateTime   @default(now())
+
+  @@unique([userId, departmentId])
+  @@index([departmentId])
+}
+
+model Document {
+  id                String         @id @default(cuid())
+  serialNo          String         @unique
+  type              DocumentType
+  title             String
+
+  departmentId      String
+  subDepartmentId   String?
+
+  createdById       String
+  updatedById       String?
+  deletedById       String?
+
+  latestVersionId   String?        @unique
+  publishedVersionId String?       @unique
+  currentVersion    Int            @default(1)
+
+  status            DocumentStatus @default(DRAFT)
+  isPublished       Boolean        @default(false)
+  hasEverBeenPublished Boolean     @default(false)
+  publishedAt       DateTime?
+  publishedById     String?
+
+  department        Department     @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  subDepartment     SubDepartment? @relation(fields: [subDepartmentId], references: [id], onDelete: SetNull)
+
+  createdBy         User           @relation("DocumentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy         User?          @relation("DocumentUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  deletedBy         User?          @relation("DocumentDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+
+  versions          DocumentVersion[]
+  approvalRequests  ApprovalRequest[]
+  latestVersion     DocumentVersion? @relation("LatestDocumentVersion", fields: [latestVersionId], references: [id], onDelete: SetNull)
+  publishedVersion  DocumentVersion? @relation("PublishedDocumentVersion", fields: [publishedVersionId], references: [id], onDelete: SetNull)
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  deletedAt         DateTime?
+
+  @@index([type, departmentId])
+  @@index([departmentId, subDepartmentId])
+  @@index([createdById])
+  @@index([status])
+  @@index([isPublished])
+  @@index([publishedAt])
+  @@index([deletedAt])
+  @@index([title])
+}
+
+model DocumentVersion {
+  id               String   @id @default(cuid())
+  documentId       String
+  versionNumber    Int
+  content          Json
+  changeSummary    String?
+  isLatest         Boolean  @default(true)
+
+  createdById      String
+  updatedById      String?
+
+  document         Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  createdBy        User     @relation("VersionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy        User?    @relation("VersionUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  approvalRequests ApprovalRequest[] @relation("ApprovalRequestDocumentVersion")
+
+  latestForDoc     Document? @relation("LatestDocumentVersion")
+  publishedForDoc  Document? @relation("PublishedDocumentVersion")
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  deletedAt        DateTime?
+
+  @@unique([documentId, versionNumber])
+  @@index([documentId, isLatest])
+  @@index([createdById])
+  @@index([deletedAt])
+}
+
+model ApprovalRequest {
+  id                 String         @id @default(cuid())
+  documentId         String
+  documentVersionId  String
+  requesterId        String
+  approverId         String
+
+  status             ApprovalStatus @default(PENDING)
+  remarks            String?
+  actedAt            DateTime?
+
+  /** Department admin endorsement before forwarding to org Admin (supervisor-submitted SOPs). */
+  deptApprovedAt     DateTime?
+  deptApprovedById   String?
+  deptApprovedBy     User?          @relation("ApprovalDeptEndorsement", fields: [deptApprovedById], references: [id], onDelete: SetNull)
+
+  document           Document        @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  documentVersion    DocumentVersion @relation("ApprovalRequestDocumentVersion", fields: [documentVersionId], references: [id], onDelete: Cascade)
+  requester          User            @relation("ApprovalRequester", fields: [requesterId], references: [id], onDelete: Restrict)
+  approver           User            @relation("ApprovalApprover", fields: [approverId], references: [id], onDelete: Restrict)
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  deletedAt          DateTime?
+
+  @@index([documentId, status])
+  @@index([documentVersionId])
+  @@index([requesterId])
+  @@index([approverId])
+  @@index([deptApprovedById])
+  @@index([createdAt])
+  @@index([deletedAt])
+}
+
+model AuditLog {
+  id              String      @id @default(cuid())
+  actorId         String?
+  action          AuditAction
+  entityType      String
+  entityId        String
+  entityTitle     String?
+  meta            Json?
+  ipAddress       String?
+  userAgent       String?
+
+  actor           User?       @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  createdAt       DateTime    @default(now())
+  deletedAt       DateTime?
+
+  @@index([actorId, createdAt])
+  @@index([entityType, entityId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+  link      String?  @db.Text
+  createdAt DateTime @default(now())
+
+  user      User     @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+}
